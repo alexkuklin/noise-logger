@@ -116,8 +116,9 @@ class LogViewerActivity : AppCompatActivity() {
     }
 
     private fun exportLog() {
-        val logFile = recordingManager.getLogFile()
-        if (!logFile.exists()) {
+        val exportFile = recordingManager.exportAllToCsv()
+        if (exportFile == null) {
+            Toast.makeText(this, "No data to export", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -125,7 +126,7 @@ class LogViewerActivity : AppCompatActivity() {
             val uri = FileProvider.getUriForFile(
                 this,
                 "${packageName}.fileprovider",
-                logFile
+                exportFile
             )
 
             val intent = Intent(Intent.ACTION_SEND).apply {
@@ -137,6 +138,7 @@ class LogViewerActivity : AppCompatActivity() {
             startActivity(Intent.createChooser(intent, "Export Log"))
         } catch (e: Exception) {
             e.printStackTrace()
+            Toast.makeText(this, "Failed to export", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -199,15 +201,15 @@ class LogViewerActivity : AppCompatActivity() {
                 uris.add(uri)
             }
 
-            // Also include the log file
-            val logFile = recordingManager.getLogFile()
-            if (logFile.exists()) {
-                val logUri = FileProvider.getUriForFile(
+            // Also include the exported CSV
+            val exportFile = recordingManager.exportAllToCsv()
+            if (exportFile != null) {
+                val exportUri = FileProvider.getUriForFile(
                     this,
                     "${packageName}.fileprovider",
-                    logFile
+                    exportFile
                 )
-                uris.add(logUri)
+                uris.add(exportUri)
             }
 
             val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {

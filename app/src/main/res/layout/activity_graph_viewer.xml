@@ -5,42 +5,98 @@
     android:orientation="vertical"
     android:background="@color/background">
 
+    <!-- Date/Time range picker -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:gravity="center_vertical"
+        android:background="#E0E0E0">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="From:"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary" />
+
+        <Button
+            android:id="@+id/btnFromDate"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Aug 19, 00:00"
+            android:textSize="12sp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="  To:"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary" />
+
+        <Button
+            android:id="@+id/btnToDate"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Aug 20, 00:00"
+            android:textSize="12sp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
+
+        <Button
+            android:id="@+id/btnApplyRange"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Apply"
+            android:textSize="12sp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="12dp"
+            android:layout_marginStart="4dp"
+            android:backgroundTint="@color/start_button"
+            android:textColor="@android:color/white" />
+
+    </LinearLayout>
+
     <!-- Info bar -->
     <TextView
         android:id="@+id/tvInfo"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="12dp"
-        android:textSize="14sp"
+        android:padding="6dp"
+        android:textSize="11sp"
         android:textColor="@color/text_primary"
         android:background="#E8E8E8"
-        android:text="Loading..." />
+        android:text="Select range and tap Apply" />
 
     <!-- Chart -->
     <com.github.mikephil.charting.charts.LineChart
         android:id="@+id/chart"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:padding="8dp" />
+        android:layout_weight="1" />
 
     <!-- Playback controls -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="12dp"
-        android:background="#E8E8E8">
+        android:padding="8dp"
+        android:background="#E0E0E0">
 
         <TextView
             android:id="@+id/tvPlaybackTime"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Tap on graph to select point"
-            android:textSize="16sp"
+            android:text="Tap graph to select, then Play"
+            android:textSize="13sp"
             android:textColor="@color/text_primary"
             android:gravity="center"
-            android:paddingBottom="8dp" />
+            android:paddingBottom="6dp" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -50,37 +106,42 @@
 
             <Button
                 android:id="@+id/btnZoomOut"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:text="-"
-                android:textSize="20sp"
+                android:textSize="16sp"
+                android:padding="0dp"
                 style="@style/Widget.Material3.Button.OutlinedButton" />
 
             <Button
                 android:id="@+id/btnResetZoom"
                 android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:text="Reset"
-                android:layout_marginHorizontal="8dp"
+                android:layout_height="40dp"
+                android:text="Fit"
+                android:textSize="12sp"
+                android:layout_marginHorizontal="4dp"
+                android:paddingHorizontal="12dp"
                 style="@style/Widget.Material3.Button.OutlinedButton" />
 
             <Button
                 android:id="@+id/btnZoomIn"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:text="+"
-                android:textSize="20sp"
+                android:textSize="16sp"
+                android:padding="0dp"
                 style="@style/Widget.Material3.Button.OutlinedButton" />
 
             <View
-                android:layout_width="24dp"
+                android:layout_width="16dp"
                 android:layout_height="1dp" />
 
             <Button
                 android:id="@+id/btnPlayPause"
-                android:layout_width="100dp"
-                android:layout_height="48dp"
+                android:layout_width="80dp"
+                android:layout_height="40dp"
                 android:text="Play"
+                android:textSize="13sp"
                 android:backgroundTint="@color/start_button"
                 android:textColor="@android:color/white" />
 

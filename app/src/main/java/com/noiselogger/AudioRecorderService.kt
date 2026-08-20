@@ -104,8 +104,8 @@ class AudioRecorderService : Service() {
 
     private fun startRecordingWithLocation(location: LocationData?) {
         try {
-            // Initialize recording with location
-            recordingManager?.initializeLogFile(location)
+            // Start session in database with location
+            recordingManager?.startSession(location)
             startNewRecordingChunk()
 
             // Start noise level monitoring
@@ -144,8 +144,8 @@ class AudioRecorderService : Service() {
             }
             mediaRecorder = null
 
-            // Close log file
-            recordingManager?.closeLogFile()
+            // End session in database
+            recordingManager?.endSession()
             recordingManager?.reset()
 
             // Release wake lock

@@ -1,11 +1,12 @@
 package com.noiselogger
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.graphics.Color
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -23,10 +24,14 @@ import com.github.mikephil.charting.listener.OnChartValueSelectedListener
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.Executors
 
 class GraphViewerActivity : AppCompatActivity(), OnChartValueSelectedListener {
 
     private lateinit var chart: LineChart
+    private lateinit var btnFromDate: Button
+    private lateinit var btnToDate: Button
+    private lateinit var btnApplyRange: Button
     private lateinit var tvInfo: TextView
     private lateinit var tvPlaybackTime: TextView
     private lateinit var btnPlayPause: Button
@@ -38,25 +43,24 @@ class GraphViewerActivity : AppCompatActivity(), OnChartValueSelectedListener {
 
     private var mediaPlayer: MediaPlayer? = null
     private var isPlaying = false
-    private var currentLogFile: File? = null
+    private var isPrepared = false
 
     private val handler = Handler(Looper.getMainLooper())
+    private val executor = Executors.newSingleThreadExecutor()
     private var playbackRunnable: Runnable? = null
 
-    // Data structures
-    private var logEntries = mutableListOf<GraphLogEntry>()
+    // Date range
+    private var fromDate: Calendar = Calendar.getInstance()
+    private var toDate: Calendar = Calendar.getInstance()
+    private val dateTimeFormat = SimpleDateFormat("MMM dd, HH:mm", Locale.US)
+
+    // Data from SQLite
+    private var readings = listOf<NoiseDatabase.NoiseReading>()
     private var recordingFiles = mutableMapOf<String, File>()
-    private var sessionStartTime: Long = 0
+    private var rangeStartTime: Long = 0
 
     // Playback marker
     private var playbackMarker: LimitLine? = null
-
-    data class GraphLogEntry(
-        val timestamp: Long,
-        val dbLevel: Double,
-        val recordingFile: String,
-        val offsetInFile: Long // milliseconds from start of this recording file
-    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,9 +71,17 @@ class GraphViewerActivity : AppCompatActivity(), OnChartValueSelectedListener {
 
         recordingManager = RecordingManager(this)
 
+        // Set default range: last 24 hours
+        toDate = Calendar.getInstance()
+        fromDate = Calendar.getInstance().apply {
+            add(Calendar.HOUR_OF_DAY, -24)
+        }
+
         initViews()
         setupChart()
-        loadData()
+        loadRecordingFiles()
+        updateDateButtons()
+        loadDataForRange()
         setupClickListeners()
     }
 
@@ -81,10 +93,14 @@ class GraphViewerActivity : AppCompatActivity(), OnChartValueSelectedListener {
     override fun onDestroy() {
         super.onDestroy()
         stopPlayback()
+        executor.shutdown()
     }
 
     private fun initViews() {
         chart = findViewById(R.id.chart)
+        btnFromDate = findViewById(R.id.btnFromDate)
+        btnToDate = findViewById(R.id.btnToDate)
+        btnApplyRange = findViewById(R.id.btnApplyRange)
         tvInfo = findViewById(R.id.tvInfo)
         tvPlaybackTime = findViewById(R.id.tvPlaybackTime)
         btnPlayPause = findViewById(R.id.btnPlayPause)
@@ -93,192 +109,65 @@ class GraphViewerActivity : AppCompatActivity(), OnChartValueSelectedListener {
         btnResetZoom = findViewById(R.id.btnResetZoom)
     }
 
-    private fun setupChart() {
-        chart.apply {
-            description.isEnabled = false
-            setTouchEnabled(true)
-            isDragEnabled = true
-            setScaleEnabled(true)
-            setPinchZoom(true)
-            setDrawGridBackground(false)
-            setOnChartValueSelectedListener(this@GraphViewerActivity)
-
-            // X axis (time)
-            xAxis.apply {
-                position = XAxis.XAxisPosition.BOTTOM
-                setDrawGridLines(true)
-                granularity = 60f // 1 minute minimum
-                valueFormatter = TimeAxisFormatter()
-            }
-
-            // Y axis (dB)
-            axisLeft.apply {
-                setDrawGridLines(true)
-                axisMinimum = 20f
-                axisMaximum = 100f
-            }
-            axisRight.isEnabled = false
-
-            // Legend
-            legend.isEnabled = true
-
-            // No data text
-            setNoDataText("Loading noise data...")
-        }
-    }
-
-    private fun loadData() {
-        val logFile = recordingManager.getLogFile()
-        if (!logFile.exists()) {
-            tvInfo.text = "No log data available"
-            return
-        }
-
-        currentLogFile = logFile
-        logEntries.clear()
-
-        // Parse log file
-        val lines = logFile.readLines()
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-
-        var currentRecordingFile = ""
-        var currentRecordingStartTime = 0L
-
-        // Load recording files
+    private fun loadRecordingFiles() {
         recordingManager.getRecordings().forEach { recording ->
             recordingFiles[recording.name] = recording.file
         }
+    }
 
-        for (line in lines) {
-            if (line.startsWith("#") || line.startsWith("timestamp") || line.isBlank()) {
-                continue
-            }
+    private fun updateDateButtons() {
+        btnFromDate.text = dateTimeFormat.format(fromDate.time)
+        btnToDate.text = dateTimeFormat.format(toDate.time)
+    }
 
-            val parts = line.split(",")
-            if (parts.size >= 2) {
-                try {
-                    val timestamp = dateFormat.parse(parts[0])?.time ?: continue
-                    val dbLevel = parts[1].toDoubleOrNull() ?: continue
-                    val recordingFile = parts.getOrElse(5) { "" }
+    private fun showDateTimePicker(calendar: Calendar, onSet: (Calendar) -> Unit) {
+        val currentYear = calendar.get(Calendar.YEAR)
+        val currentMonth = calendar.get(Calendar.MONTH)
+        val currentDay = calendar.get(Calendar.DAY_OF_MONTH)
+        val currentHour = calendar.get(Calendar.HOUR_OF_DAY)
+        val currentMinute = calendar.get(Calendar.MINUTE)
 
-                    if (sessionStartTime == 0L) {
-                        sessionStartTime = timestamp
-                    }
-
-                    // Track recording file changes to calculate offset
-                    if (recordingFile != currentRecordingFile) {
-                        currentRecordingFile = recordingFile
-                        currentRecordingStartTime = timestamp
-                    }
-
-                    val offsetInFile = timestamp - currentRecordingStartTime
-
-                    logEntries.add(
-                        GraphLogEntry(
-                            timestamp = timestamp,
-                            dbLevel = dbLevel,
-                            recordingFile = recordingFile,
-                            offsetInFile = offsetInFile
-                        )
-                    )
-                } catch (e: Exception) {
-                    // Skip malformed lines
+        DatePickerDialog(this, { _, year, month, day ->
+            TimePickerDialog(this, { _, hour, minute ->
+                val newCal = Calendar.getInstance().apply {
+                    set(year, month, day, hour, minute, 0)
+                    set(Calendar.MILLISECOND, 0)
                 }
-            }
-        }
-
-        if (logEntries.isEmpty()) {
-            tvInfo.text = "No data points found"
-            return
-        }
-
-        displayChart()
-        updateInfo()
-    }
-
-    private fun displayChart() {
-        val entries = logEntries.mapIndexed { index, entry ->
-            // X = seconds from session start
-            val secondsFromStart = (entry.timestamp - sessionStartTime) / 1000f
-            Entry(secondsFromStart, entry.dbLevel.toFloat())
-        }
-
-        val dataSet = LineDataSet(entries, "Noise Level (dB)").apply {
-            color = ContextCompat.getColor(this@GraphViewerActivity, R.color.level_medium)
-            setDrawCircles(false)
-            lineWidth = 1.5f
-            setDrawValues(false)
-            setDrawFilled(true)
-            fillColor = ContextCompat.getColor(this@GraphViewerActivity, R.color.level_medium)
-            fillAlpha = 50
-            mode = LineDataSet.Mode.LINEAR
-
-            // Highlight
-            highLightColor = Color.RED
-            highlightLineWidth = 2f
-        }
-
-        chart.data = LineData(dataSet)
-        chart.invalidate()
-
-        // Add threshold lines
-        addThresholdLines()
-    }
-
-    private fun addThresholdLines() {
-        val leftAxis = chart.axisLeft
-
-        // Clear existing limit lines
-        leftAxis.removeAllLimitLines()
-
-        // Add noise level thresholds
-        val moderateLine = LimitLine(50f, "Moderate").apply {
-            lineColor = ContextCompat.getColor(this@GraphViewerActivity, R.color.level_low)
-            lineWidth = 1f
-            enableDashedLine(10f, 10f, 0f)
-        }
-
-        val loudLine = LimitLine(70f, "Loud").apply {
-            lineColor = ContextCompat.getColor(this@GraphViewerActivity, R.color.level_medium)
-            lineWidth = 1f
-            enableDashedLine(10f, 10f, 0f)
-        }
-
-        val veryLoudLine = LimitLine(85f, "Very Loud").apply {
-            lineColor = ContextCompat.getColor(this@GraphViewerActivity, R.color.level_high)
-            lineWidth = 1f
-            enableDashedLine(10f, 10f, 0f)
-        }
-
-        leftAxis.addLimitLine(moderateLine)
-        leftAxis.addLimitLine(loudLine)
-        leftAxis.addLimitLine(veryLoudLine)
-    }
-
-    private fun updateInfo() {
-        if (logEntries.isEmpty()) return
-
-        val duration = (logEntries.last().timestamp - sessionStartTime) / 1000
-        val maxDb = logEntries.maxOf { it.dbLevel }
-        val avgDb = logEntries.map { it.dbLevel }.average()
-
-        tvInfo.text = "Duration: ${formatDuration(duration * 1000)} | " +
-                "Max: ${"%.0f".format(maxDb)} dB | " +
-                "Avg: ${"%.0f".format(avgDb)} dB"
+                onSet(newCal)
+            }, currentHour, currentMinute, true).show()
+        }, currentYear, currentMonth, currentDay).show()
     }
 
     private fun setupClickListeners() {
+        btnFromDate.setOnClickListener {
+            showDateTimePicker(fromDate) { cal ->
+                fromDate = cal
+                updateDateButtons()
+            }
+        }
+
+        btnToDate.setOnClickListener {
+            showDateTimePicker(toDate) { cal ->
+                toDate = cal
+                updateDateButtons()
+            }
+        }
+
+        btnApplyRange.setOnClickListener {
+            if (fromDate.timeInMillis >= toDate.timeInMillis) {
+                Toast.makeText(this, "Start must be before end", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            loadDataForRange()
+        }
+
         btnPlayPause.setOnClickListener {
             if (isPlaying) {
                 pausePlayback()
             } else {
-                // If nothing selected, start from beginning
                 val highlight = chart.highlighted?.firstOrNull()
-                if (highlight != null) {
-                    playFromPosition(highlight.x)
-                } else if (logEntries.isNotEmpty()) {
-                    playFromPosition(0f)
-                }
+                val startPos = highlight?.x ?: 0f
+                playFromPosition(startPos)
             }
         }
 
@@ -295,107 +184,269 @@ class GraphViewerActivity : AppCompatActivity(), OnChartValueSelectedListener {
         }
     }
 
+    private fun setupChart() {
+        chart.apply {
+            description.isEnabled = false
+            setTouchEnabled(true)
+            isDragEnabled = true
+            setScaleEnabled(true)
+            setPinchZoom(true)
+            setDrawGridBackground(false)
+            setOnChartValueSelectedListener(this@GraphViewerActivity)
+
+            xAxis.apply {
+                position = XAxis.XAxisPosition.BOTTOM
+                setDrawGridLines(true)
+                granularity = 60f
+                valueFormatter = TimeAxisFormatter()
+            }
+
+            axisLeft.apply {
+                setDrawGridLines(true)
+                axisMinimum = 20f
+                axisMaximum = 100f
+            }
+            axisRight.isEnabled = false
+            legend.isEnabled = true
+            setNoDataText("Select a time range and tap Apply")
+        }
+    }
+
+    private fun loadDataForRange() {
+        stopPlayback()
+        rangeStartTime = fromDate.timeInMillis
+
+        val fromTime = fromDate.timeInMillis
+        val toTime = toDate.timeInMillis
+
+        // Query SQLite database
+        readings = recordingManager.getReadingsInRange(fromTime, toTime)
+
+        if (readings.isEmpty()) {
+            tvInfo.text = "No data in selected range"
+            displayEmptyChart()
+            return
+        }
+
+        displayChart()
+        updateInfo()
+    }
+
+    private fun displayEmptyChart() {
+        // Show empty chart with full selected range
+        val rangeSeconds = (toDate.timeInMillis - fromDate.timeInMillis) / 1000f
+        chart.xAxis.apply {
+            axisMinimum = 0f
+            axisMaximum = rangeSeconds
+        }
+
+        val emptyDataSet = LineDataSet(emptyList(), "Noise Level (dB)").apply {
+            color = ContextCompat.getColor(this@GraphViewerActivity, R.color.level_medium)
+        }
+
+        chart.data = LineData(emptyDataSet)
+        chart.fitScreen()
+        chart.invalidate()
+        addThresholdLines()
+    }
+
+    private fun displayChart() {
+        val entries = readings.map { reading ->
+            val secondsFromStart = (reading.timestamp - rangeStartTime) / 1000f
+            Entry(secondsFromStart, reading.dbLevel.toFloat())
+        }
+
+        val dataSet = LineDataSet(entries, "Noise Level (dB)").apply {
+            color = ContextCompat.getColor(this@GraphViewerActivity, R.color.level_medium)
+            setDrawCircles(false)
+            lineWidth = 1.5f
+            setDrawValues(false)
+            setDrawFilled(true)
+            fillColor = ContextCompat.getColor(this@GraphViewerActivity, R.color.level_medium)
+            fillAlpha = 50
+            mode = LineDataSet.Mode.LINEAR
+            highLightColor = Color.RED
+            highlightLineWidth = 2f
+        }
+
+        // Set X axis to show full selected range
+        val rangeSeconds = (toDate.timeInMillis - fromDate.timeInMillis) / 1000f
+        chart.xAxis.apply {
+            axisMinimum = 0f
+            axisMaximum = rangeSeconds
+        }
+
+        chart.data = LineData(dataSet)
+        chart.fitScreen()
+        chart.invalidate()
+        addThresholdLines()
+    }
+
+    private fun addThresholdLines() {
+        val leftAxis = chart.axisLeft
+        leftAxis.removeAllLimitLines()
+
+        listOf(
+            Triple(50f, "Moderate", R.color.level_low),
+            Triple(70f, "Loud", R.color.level_medium),
+            Triple(85f, "Very Loud", R.color.level_high)
+        ).forEach { (value, label, colorRes) ->
+            leftAxis.addLimitLine(LimitLine(value, label).apply {
+                lineColor = ContextCompat.getColor(this@GraphViewerActivity, colorRes)
+                lineWidth = 1f
+                enableDashedLine(10f, 10f, 0f)
+                textSize = 10f
+            })
+        }
+    }
+
+    private fun updateInfo() {
+        if (readings.isEmpty()) return
+
+        val duration = (readings.last().timestamp - readings.first().timestamp) / 1000
+        val maxDb = readings.maxOf { it.dbLevel }
+        val avgDb = readings.map { it.dbLevel }.average()
+        val peakCount = countPeaks(readings, 70.0)
+
+        tvInfo.text = "Points: ${readings.size} | " +
+                "Max: ${"%.0f".format(maxDb)} dB | " +
+                "Avg: ${"%.0f".format(avgDb)} dB | " +
+                "Peaks >70dB: $peakCount"
+    }
+
+    private fun countPeaks(entries: List<NoiseDatabase.NoiseReading>, threshold: Double): Int {
+        var count = 0
+        var wasAbove = false
+        for (entry in entries) {
+            val isAbove = entry.dbLevel >= threshold
+            if (isAbove && !wasAbove) count++
+            wasAbove = isAbove
+        }
+        return count
+    }
+
     override fun onValueSelected(e: Entry?, h: Highlight?) {
         if (e == null) return
 
-        val secondsFromStart = e.x.toLong()
-        val entryIndex = logEntries.indexOfFirst {
-            (it.timestamp - sessionStartTime) / 1000 == secondsFromStart
+        val timestamp = rangeStartTime + (e.x * 1000).toLong()
+        val reading = readings.minByOrNull {
+            kotlin.math.abs(it.timestamp - timestamp)
         }
 
-        if (entryIndex >= 0) {
-            val entry = logEntries[entryIndex]
-            val timeStr = SimpleDateFormat("HH:mm:ss", Locale.US)
-                .format(Date(entry.timestamp))
-
-            tvPlaybackTime.text = "$timeStr - ${"%.1f".format(entry.dbLevel)} dB"
-
-            // If playing, seek to this position
-            if (isPlaying) {
-                playFromPosition(e.x)
-            }
+        if (reading != null) {
+            val timeStr = SimpleDateFormat("MMM dd HH:mm:ss", Locale.US).format(Date(reading.timestamp))
+            tvPlaybackTime.text = "$timeStr - ${"%.1f".format(reading.dbLevel)} dB"
         }
     }
 
     override fun onNothingSelected() {
-        tvPlaybackTime.text = "Tap on graph to select point"
+        tvPlaybackTime.text = "Tap graph to select, then Play"
     }
 
     private fun playFromPosition(secondsFromStart: Float) {
         stopPlayback()
 
-        // Find the entry at this position
-        val targetTime = sessionStartTime + (secondsFromStart * 1000).toLong()
-        val entry = logEntries.minByOrNull {
-            kotlin.math.abs(it.timestamp - targetTime)
-        } ?: return
-
-        val recordingFile = recordingFiles[entry.recordingFile]
-        if (recordingFile == null || !recordingFile.exists()) {
-            Toast.makeText(this, "Recording file not found", Toast.LENGTH_SHORT).show()
+        if (readings.isEmpty()) {
+            Toast.makeText(this, "No data to play", Toast.LENGTH_SHORT).show()
             return
         }
 
-        try {
-            mediaPlayer = MediaPlayer().apply {
-                setDataSource(recordingFile.absolutePath)
-                prepare()
-                seekTo(entry.offsetInFile.toInt())
-                start()
+        val targetTime = rangeStartTime + (secondsFromStart * 1000).toLong()
+        val reading = readings.minByOrNull {
+            kotlin.math.abs(it.timestamp - targetTime)
+        } ?: return
+
+        val recordingFileName = reading.recordingFile
+        if (recordingFileName.isEmpty()) {
+            Toast.makeText(this, "No recording file for this point", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val recordingFile = recordingFiles[recordingFileName]
+        if (recordingFile == null || !recordingFile.exists()) {
+            Toast.makeText(this, "Recording not found: $recordingFileName", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Calculate offset: find the first reading with this recording file
+        val recordingStartReading = readings.firstOrNull { it.recordingFile == recordingFileName }
+        val offsetInFile = if (recordingStartReading != null) {
+            reading.timestamp - recordingStartReading.timestamp
+        } else {
+            0L
+        }
+
+        btnPlayPause.isEnabled = false
+        btnPlayPause.text = "..."
+
+        executor.execute {
+            try {
+                val player = MediaPlayer().apply {
+                    setDataSource(recordingFile.absolutePath)
+                    prepare()
+                    seekTo(offsetInFile.toInt().coerceAtLeast(0))
+                }
+
+                handler.post {
+                    mediaPlayer = player
+                    isPrepared = true
+                    player.start()
+                    isPlaying = true
+                    btnPlayPause.isEnabled = true
+                    btnPlayPause.text = "Pause"
+                    startPlaybackUpdates(secondsFromStart)
+
+                    player.setOnCompletionListener {
+                        handler.post { stopPlayback() }
+                    }
+
+                    player.setOnErrorListener { _, _, _ ->
+                        handler.post {
+                            Toast.makeText(this, "Playback error", Toast.LENGTH_SHORT).show()
+                            stopPlayback()
+                        }
+                        true
+                    }
+                }
+            } catch (e: Exception) {
+                handler.post {
+                    btnPlayPause.isEnabled = true
+                    btnPlayPause.text = "Play"
+                    Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
-
-            isPlaying = true
-            btnPlayPause.text = "Pause"
-
-            // Start playback position updates
-            startPlaybackUpdates(secondsFromStart)
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Toast.makeText(this, "Failed to play audio", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun startPlaybackUpdates(startSeconds: Float) {
-        playbackRunnable = object : Runnable {
-            var currentSeconds = startSeconds
+        var currentSeconds = startSeconds
 
+        playbackRunnable = object : Runnable {
             override fun run() {
-                if (isPlaying && mediaPlayer != null) {
-                    // Update marker position
+                if (isPlaying && mediaPlayer != null && isPrepared) {
                     updatePlaybackMarker(currentSeconds)
 
-                    // Update time display
-                    val currentTime = sessionStartTime + (currentSeconds * 1000).toLong()
-                    val entry = logEntries.minByOrNull {
-                        kotlin.math.abs(it.timestamp - currentTime)
+                    val timestamp = rangeStartTime + (currentSeconds * 1000).toLong()
+                    val reading = readings.minByOrNull {
+                        kotlin.math.abs(it.timestamp - timestamp)
                     }
-                    if (entry != null) {
-                        val timeStr = SimpleDateFormat("HH:mm:ss", Locale.US)
-                            .format(Date(entry.timestamp))
-                        tvPlaybackTime.text = "$timeStr - ${"%.1f".format(entry.dbLevel)} dB"
+                    if (reading != null) {
+                        val timeStr = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(reading.timestamp))
+                        tvPlaybackTime.text = "$timeStr - ${"%.1f".format(reading.dbLevel)} dB"
                     }
 
-                    currentSeconds += 0.5f // Update every 500ms
+                    currentSeconds += 0.5f
                     handler.postDelayed(this, 500)
                 }
             }
         }
         handler.post(playbackRunnable!!)
-
-        // Set completion listener
-        mediaPlayer?.setOnCompletionListener {
-            stopPlayback()
-        }
     }
 
     private fun updatePlaybackMarker(seconds: Float) {
         val xAxis = chart.xAxis
-
-        // Remove old marker
         playbackMarker?.let { xAxis.removeLimitLine(it) }
 
-        // Add new marker
         playbackMarker = LimitLine(seconds).apply {
             lineColor = Color.RED
             lineWidth = 2f
@@ -405,48 +456,40 @@ class GraphViewerActivity : AppCompatActivity(), OnChartValueSelectedListener {
     }
 
     private fun pausePlayback() {
-        mediaPlayer?.pause()
+        try {
+            mediaPlayer?.pause()
+        } catch (e: Exception) {}
         isPlaying = false
         btnPlayPause.text = "Play"
         playbackRunnable?.let { handler.removeCallbacks(it) }
     }
 
     private fun stopPlayback() {
-        mediaPlayer?.apply {
-            if (isPlaying) {
-                stop()
+        playbackRunnable?.let { handler.removeCallbacks(it) }
+        playbackRunnable = null
+
+        try {
+            mediaPlayer?.apply {
+                if (isPrepared) stop()
+                release()
             }
-            release()
-        }
+        } catch (e: Exception) {}
+
         mediaPlayer = null
+        isPrepared = false
         isPlaying = false
         btnPlayPause.text = "Play"
-        playbackRunnable?.let { handler.removeCallbacks(it) }
+        btnPlayPause.isEnabled = true
 
-        // Remove playback marker
         playbackMarker?.let { chart.xAxis.removeLimitLine(it) }
         playbackMarker = null
         chart.invalidate()
     }
 
-    private fun formatDuration(millis: Long): String {
-        val seconds = (millis / 1000) % 60
-        val minutes = (millis / (1000 * 60)) % 60
-        val hours = millis / (1000 * 60 * 60)
-        return if (hours > 0) {
-            "%d:%02d:%02d".format(hours, minutes, seconds)
-        } else {
-            "%d:%02d".format(minutes, seconds)
-        }
-    }
-
-    // X-axis formatter to show time
     inner class TimeAxisFormatter : ValueFormatter() {
         override fun getFormattedValue(value: Float): String {
-            val totalSeconds = value.toLong()
-            val minutes = totalSeconds / 60
-            val seconds = totalSeconds % 60
-            return "%d:%02d".format(minutes, seconds)
+            val timestamp = rangeStartTime + (value * 1000).toLong()
+            return SimpleDateFormat("HH:mm", Locale.US).format(Date(timestamp))
         }
     }
 }

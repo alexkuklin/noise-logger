@@ -1,7 +1,6 @@
 package com.noiselogger
 
 import android.content.Context
-import android.os.Environment
 import java.io.File
 import java.io.FileWriter
 import java.io.PrintWriter
@@ -12,8 +11,7 @@ class RecordingManager(private val context: Context) {
 
     companion object {
         private const val RECORDINGS_DIR = "NoiseLogger/recordings"
-        private const val LOGS_DIR = "NoiseLogger/logs"
-        private const val LOG_FILENAME = "noise_log.csv"
+        private const val EXPORTS_DIR = "NoiseLogger/exports"
         private const val CHUNK_DURATION_MS = 30 * 60 * 1000L // 30 minutes
     }
 
@@ -22,8 +20,10 @@ class RecordingManager(private val context: Context) {
 
     private var currentRecordingFile: File? = null
     private var currentRecordingStartTime: Long = 0
-    private var logWriter: PrintWriter? = null
     private var sessionLocation: LocationData? = null
+    private var currentSessionId: Long = -1
+
+    private val database: NoiseDatabase by lazy { NoiseDatabase(context) }
 
     fun getRecordingsDir(): File {
         val dir = File(context.getExternalFilesDir(null), RECORDINGS_DIR)
@@ -33,8 +33,8 @@ class RecordingManager(private val context: Context) {
         return dir
     }
 
-    fun getLogsDir(): File {
-        val dir = File(context.getExternalFilesDir(null), LOGS_DIR)
+    fun getExportsDir(): File {
+        val dir = File(context.getExternalFilesDir(null), EXPORTS_DIR)
         if (!dir.exists()) {
             dir.mkdirs()
         }
@@ -58,55 +58,28 @@ class RecordingManager(private val context: Context) {
         return currentRecordingFile?.name ?: ""
     }
 
-    fun initializeLogFile(location: LocationData? = null) {
+    fun startSession(location: LocationData? = null) {
         sessionLocation = location
+        currentSessionId = database.startSession(location)
+    }
 
-        // Create a new session log file with timestamp
-        val sessionTimestamp = dateFormat.format(Date())
-        val logFile = File(getLogsDir(), "noise_log_$sessionTimestamp.csv")
-
-        logWriter = PrintWriter(FileWriter(logFile, false), true)
-
-        // Write header with location info
-        logWriter?.println("# Noise Logger Session")
-        logWriter?.println("# Started: ${timestampFormat.format(Date())}")
-        if (location != null) {
-            logWriter?.println(location.toHeaderString())
-        } else {
-            logWriter?.println("# Location: not available")
+    fun endSession() {
+        if (currentSessionId >= 0) {
+            database.endSession(currentSessionId)
         }
-        logWriter?.println("#")
-        logWriter?.println("timestamp,db_level,latitude,longitude,altitude,recording_file")
+        currentSessionId = -1
     }
 
     fun getSessionLocation(): LocationData? = sessionLocation
 
     fun logNoiseLevel(dbLevel: Double) {
-        val timestamp = timestampFormat.format(Date())
-        val recordingFile = getCurrentRecordingFilename()
-        val locationStr = sessionLocation?.toCsvString() ?: ",,"
-        logWriter?.println("$timestamp,${"%.1f".format(dbLevel)},$locationStr,$recordingFile")
+        if (currentSessionId >= 0) {
+            database.logReading(currentSessionId, dbLevel, getCurrentRecordingFilename())
+        }
     }
 
-    fun closeLogFile() {
-        logWriter?.close()
-        logWriter = null
-    }
-
-    fun getLogFile(): File {
-        // Return the most recent log file
-        val logsDir = getLogsDir()
-        return logsDir.listFiles()
-            ?.filter { it.name.startsWith("noise_log_") && it.extension == "csv" }
-            ?.maxByOrNull { it.lastModified() }
-            ?: File(logsDir, "noise_log.csv")
-    }
-
-    fun getAllLogFiles(): List<File> {
-        return getLogsDir().listFiles()
-            ?.filter { it.name.startsWith("noise_log_") && it.extension == "csv" }
-            ?.sortedByDescending { it.lastModified() }
-            ?: emptyList()
+    fun getReadingsInRange(fromTime: Long, toTime: Long): List<NoiseDatabase.NoiseReading> {
+        return database.getReadingsInRange(fromTime, toTime)
     }
 
     fun getRecordings(): List<RecordingInfo> {
@@ -126,30 +99,88 @@ class RecordingManager(private val context: Context) {
     }
 
     fun getLogEntries(limit: Int = 100): List<LogEntry> {
-        val logFile = getLogFile()
-        if (!logFile.exists()) return emptyList()
+        return database.getRecentReadings(limit).map { reading ->
+            LogEntry(
+                timestamp = timestampFormat.format(Date(reading.timestamp)),
+                dbLevel = reading.dbLevel,
+                recordingFile = reading.recordingFile
+            )
+        }.reversed()
+    }
 
-        return logFile.readLines()
-            .filter { !it.startsWith("#") && it.isNotBlank() && !it.startsWith("timestamp") }
-            .takeLast(limit)
-            .reversed()
-            .mapNotNull { line ->
-                val parts = line.split(",")
-                if (parts.size >= 2) {
-                    LogEntry(
-                        timestamp = parts[0],
-                        dbLevel = parts[1].toDoubleOrNull() ?: 0.0,
-                        recordingFile = parts.getOrElse(5) { "" }
-                    )
-                } else null
+    fun hasData(): Boolean {
+        return database.hasData()
+    }
+
+    /**
+     * Export data in a time range to CSV file
+     */
+    fun exportToCsv(fromTime: Long, toTime: Long): File? {
+        val readings = database.getReadingsInRange(fromTime, toTime)
+        if (readings.isEmpty()) return null
+
+        val sessions = database.getAllSessions()
+        val relevantSession = sessions.find {
+            it.startTime <= fromTime && (it.endTime == null || it.endTime >= toTime)
+        }
+
+        val exportTimestamp = dateFormat.format(Date())
+        val exportFile = File(getExportsDir(), "noise_export_$exportTimestamp.csv")
+
+        PrintWriter(FileWriter(exportFile), true).use { writer ->
+            writer.println("# Noise Logger Export")
+            writer.println("# Exported: ${timestampFormat.format(Date())}")
+            writer.println("# Range: ${timestampFormat.format(Date(fromTime))} to ${timestampFormat.format(Date(toTime))}")
+            if (relevantSession != null && relevantSession.latitude != null) {
+                writer.println("# Location: ${relevantSession.latitude}, ${relevantSession.longitude}, ${relevantSession.altitude}m")
             }
+            writer.println("#")
+            writer.println("timestamp,db_level,recording_file")
+
+            for (reading in readings) {
+                val timestamp = timestampFormat.format(Date(reading.timestamp))
+                // Use Locale.US to ensure dot as decimal separator
+                writer.println("$timestamp,${String.format(Locale.US, "%.1f", reading.dbLevel)},${reading.recordingFile}")
+            }
+        }
+
+        return exportFile
+    }
+
+    /**
+     * Export all data to CSV
+     */
+    fun exportAllToCsv(): File? {
+        val readings = database.getRecentReadings(Int.MAX_VALUE)
+        if (readings.isEmpty()) return null
+
+        val sessions = database.getAllSessions()
+
+        val exportTimestamp = dateFormat.format(Date())
+        val exportFile = File(getExportsDir(), "noise_export_all_$exportTimestamp.csv")
+
+        PrintWriter(FileWriter(exportFile), true).use { writer ->
+            writer.println("# Noise Logger Full Export")
+            writer.println("# Exported: ${timestampFormat.format(Date())}")
+            writer.println("# Total readings: ${readings.size}")
+            writer.println("# Total sessions: ${sessions.size}")
+            writer.println("#")
+            writer.println("timestamp,db_level,recording_file")
+
+            for (reading in readings) {
+                val timestamp = timestampFormat.format(Date(reading.timestamp))
+                writer.println("$timestamp,${String.format(Locale.US, "%.1f", reading.dbLevel)},${reading.recordingFile}")
+            }
+        }
+
+        return exportFile
     }
 
     private fun formatFileSize(bytes: Long): String {
         return when {
             bytes < 1024 -> "$bytes B"
             bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-            else -> "${"%.1f".format(bytes / (1024.0 * 1024.0))} MB"
+            else -> "${String.format(Locale.US, "%.1f", bytes / (1024.0 * 1024.0))} MB"
         }
     }
 
