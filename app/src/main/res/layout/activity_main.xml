@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:gravity="center_horizontal"
+    android:background="@color/background">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/app_name"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:layout_marginTop="32dp" />
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/status_stopped"
+        android:textSize="18sp"
+        android:textColor="@color/stopped"
+        android:layout_marginTop="8dp" />
+
+    <TextView
+        android:id="@+id/tvDbLevel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="0 dB"
+        android:textSize="72sp"
+        android:textStyle="bold"
+        android:textColor="@color/level_low"
+        android:layout_marginTop="48dp" />
+
+    <ProgressBar
+        android:id="@+id/progressDb"
+        style="@android:style/Widget.ProgressBar.Horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="24dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginHorizontal="32dp"
+        android:max="100"
+        android:progress="0" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="20 dB                                          100 dB"
+        android:textSize="12sp"
+        android:textColor="@color/text_secondary"
+        android:layout_marginTop="4dp" />
+
+    <TextView
+        android:id="@+id/tvDuration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="00:00:00"
+        android:textSize="32sp"
+        android:textColor="@color/text_primary"
+        android:fontFamily="monospace"
+        android:layout_marginTop="32dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Recording Duration"
+        android:textSize="14sp"
+        android:textColor="@color/text_secondary"
+        android:layout_marginTop="4dp" />
+
+    <Button
+        android:id="@+id/btnStartStop"
+        android:layout_width="200dp"
+        android:layout_height="64dp"
+        android:text="@string/start_recording"
+        android:textSize="18sp"
+        android:textColor="@android:color/white"
+        android:backgroundTint="@color/start_button"
+        android:layout_marginTop="48dp" />
+
+    <Button
+        android:id="@+id/btnViewLogs"
+        android:layout_width="200dp"
+        android:layout_height="48dp"
+        android:text="@string/view_logs"
+        android:textSize="16sp"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Background -->
+    <color name="background">#F5F5F5</color>
+
+    <!-- Text colors -->
+    <color name="text_primary">#212121</color>
+    <color name="text_secondary">#757575</color>
+
+    <!-- Button colors -->
+    <color name="start_button">#4CAF50</color>
+    <color name="stop_button">#F44336</color>
+
+    <!-- Status colors -->
+    <color name="recording">#F44336</color>
+    <color name="stopped">#757575</color>
+
+    <!-- Noise level colors -->
+    <color name="level_low">#4CAF50</color>      <!-- Green: quiet (< 50 dB) -->
+    <color name="level_medium">#FFC107</color>   <!-- Yellow: moderate (50-70 dB) -->
+    <color name="level_high">#FF9800</color>     <!-- Orange: loud (70-85 dB) -->
+    <color name="level_extreme">#F44336</color>  <!-- Red: very loud (> 85 dB) -->
+</resources>

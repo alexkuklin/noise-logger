@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Noise Logger</string>
+
+    <string name="start_recording">Start Recording</string>
+    <string name="stop_recording">Stop Recording</string>
+    <string name="view_logs">View Logs &amp; Recordings</string>
+
+    <string name="status_recording">Recording...</string>
+    <string name="status_stopped">Stopped</string>
+
+    <string name="export_log">Export CSV</string>
+    <string name="show_recordings">Show Recordings</string>
+    <string name="show_logs">Show Logs</string>
+</resources>
