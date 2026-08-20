@@ -20,6 +20,7 @@ class LogViewerActivity : AppCompatActivity() {
     private lateinit var tvEmpty: TextView
     private lateinit var btnExport: Button
     private lateinit var btnRecordings: Button
+    private lateinit var btnViewGraph: Button
 
     private lateinit var recordingManager: RecordingManager
     private var showingLogs = true
@@ -48,11 +49,16 @@ class LogViewerActivity : AppCompatActivity() {
         tvEmpty = findViewById(R.id.tvEmpty)
         btnExport = findViewById(R.id.btnExport)
         btnRecordings = findViewById(R.id.btnRecordings)
+        btnViewGraph = findViewById(R.id.btnViewGraph)
 
         recyclerView.layoutManager = LinearLayoutManager(this)
     }
 
     private fun setupClickListeners() {
+        btnViewGraph.setOnClickListener {
+            startActivity(Intent(this, GraphViewerActivity::class.java))
+        }
+
         btnExport.setOnClickListener {
             if (showingLogs) {
                 exportLog()

@@ -41,4 +41,7 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+
+    // Chart library for noise level visualization
+    implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
 }

@@ -46,6 +46,11 @@
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 
+        <activity
+            android:name=".GraphViewerActivity"
+            android:exported="false"
+            android:parentActivityName=".LogViewerActivity" />
+
         <service
             android:name=".AudioRecorderService"
             android:exported="false"
